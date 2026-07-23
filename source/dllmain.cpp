@@ -103,7 +103,7 @@ DWORD WINAPI Init(LPVOID bDelay)
         while (pattern.clear().count_hint(1).empty()) { Sleep(0); };
 
     CIniReader iniReader("ToyStory2Fix.ini");
-    constexpr char* INI_KEY = "ToyStory2Fix";
+    constexpr const char* INI_KEY = "ToyStory2Fix";
 
     if (iniReader.ReadBoolean(INI_KEY, "FixFramerate", true)) {
         timeGetDevCaps(&tc, sizeof(tc));

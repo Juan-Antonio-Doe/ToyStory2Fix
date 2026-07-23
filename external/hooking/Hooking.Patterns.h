@@ -10,6 +10,7 @@
 #define PATTERNS_USE_HINTS 0
 
 #include <cassert>
+#include <string>
 #include <vector>
 
 namespace hook
@@ -90,8 +91,9 @@ namespace hook
 
     protected:
         inline pattern(void* module)
-            : m_module(module), m_rangeEnd(0), m_matched(false)
+            : m_module(module), m_matched(false)
         {
+            m_rangeEnd = 0;
         }
 
         inline pattern(uintptr_t begin, uintptr_t end)

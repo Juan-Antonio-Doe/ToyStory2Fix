@@ -183,10 +183,10 @@ namespace linb
                             while(s.size() >= 3 && s[0] == (char)(0xEF) && s[1] == (char)(0xBB) && s[2] == (char)(0xBF))
                                 s.erase(s.begin(), s.begin() + 3);
 
-                            if(trimLeft)
-                                s.erase(s.begin(), std::find_if(s.begin(), s.end(), std::not1(std::function<int(int)>(::isspace))));
-                            if(trimRight)
-                                s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::function<int(int)>(::isspace))).base(), s.end());
+                            if (trimLeft)
+                                s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch) { return !::isspace(ch); }));
+                            if (trimRight)
+                                s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch) { return !::isspace(ch); }).base(), s.end());
                         }
                         return s;
                     };
