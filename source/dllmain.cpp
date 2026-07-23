@@ -153,7 +153,7 @@ DWORD WINAPI Init(LPVOID bDelay)
     if (iniReader.ReadBoolean(INI_KEY, "IncreaseRenderDistance", true)) {
         pattern = hook::pattern("D9 44 24 04 D8 4C 24 04 D9 1D"); //4BC410
         float** flt_5088B0_addr = (float**)pattern.get_first(10);
-        **flt_5088B0_addr = sqrt(FLT_MAX);
+        **flt_5088B0_addr = sqrtf(FLT_MAX);
         injector::MakeNOP(pattern.get_first(8), 6);
     }
 
