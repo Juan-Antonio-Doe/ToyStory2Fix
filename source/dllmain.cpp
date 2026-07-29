@@ -1,5 +1,9 @@
 #include "stdafx.h"
 #include <MMSystem.h>
+#include <algorithm>
+#include <cmath>
+#include <cctype>
+#include <cstdlib>
 
 uintptr_t sub_490860_addr;
 uintptr_t sub_49D910_addr;
@@ -87,6 +91,77 @@ int sub_49D910() {
 }
 
 
+// Safety fallback used whenever the ini value is invalid, unparseable, zero, negative, NaN,
+// or a raw (non-keyword) infinity.
+const float RENDER_DISTANCE_DEFAULT = sqrtf(FLT_MAX);
+
+// Default game render distance value (closest match to the game's original render distance, 
+// per empirical testing on the first level using the ceiling lamp behind the bedroom door).
+constexpr const float RENDER_DISTANCE_MATCHING_GAME = 1.45e8f;
+
+// Safety cap for finite values, to avoid destabilising the FPU / game logic with extreme numbers.
+// INFINITY and SQRT_FLT_MAX are intentionally exempt from this cap, as they are explicit, known-safe sentinels.
+constexpr float RENDER_DISTANCE_MAX = 1e15f;
+
+/**
+Parses the "RenderDistanceValue" ini entry into the float written to the distance-culling threshold.
+Accepts plain decimal or scientific notation, with or without a trailing 'f'/'F' suffix
+(e.g. "1.45e8", "1.45e8f"), plus the case-insensitive keywords "INFINITY" and "SQRT_FLT_MAX".
+Falls back to RENDER_DISTANCE_DEFAULT for any input that is invalid, non-positive, NaN, or a
+raw (non-keyword) infinity. Finite values above RENDER_DISTANCE_MAX are clamped.
+*/
+float ParseRenderDistanceValue(const std::string& rawValue)
+{
+    // Trim surrounding whitespace
+    std::string value = rawValue;
+    size_t start = value.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos)
+        return RENDER_DISTANCE_DEFAULT;
+
+    value.erase(0, start);
+    value.erase(value.find_last_not_of(" \t\r\n") + 1);
+
+    // Case-insensitive keyword check
+    std::string upperValue = value;
+    std::transform(upperValue.begin(), upperValue.end(), upperValue.begin(),
+        [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+    if (upperValue == "INFINITY")
+        return INFINITY;    // literal infinity, matching upstream's code: **flt_5088B0_addr = INFINITY;
+
+    if (upperValue == "SQRT_FLT_MAX")
+        return sqrtf(FLT_MAX);
+
+    // Try to parse a plain or scientific-notation float (strtof natively handles "1.45e8")
+    char* endPtr = nullptr;
+    float parsed = strtof(value.c_str(), &endPtr);
+
+    // Reject if nothing was parsed, or if there's leftover garbage after the number
+    if (endPtr == value.c_str() || *endPtr != '\0')
+        return RENDER_DISTANCE_DEFAULT;
+
+    // Allow an optional trailing 'f'/'F' float-literal suffix (e.g. "1.45e8f", "100f")
+    if ((*endPtr == 'f' || *endPtr == 'F') && *(endPtr + 1) == '\0')
+        ++endPtr;
+
+    // Reject if there's any other leftover/garbage after the number
+    if (*endPtr != '\0')
+        return RENDER_DISTANCE_DEFAULT;
+
+    // Reject NaN and any raw (non-keyword) infinity, e.g. someone typing "inf" directly
+    if (std::isnan(parsed) || std::isinf(parsed))
+        return RENDER_DISTANCE_DEFAULT;
+
+    // 0 or negative is treated as invalid/disabled -> fall back to game's default
+    if (parsed <= 0.0f)
+        return RENDER_DISTANCE_MATCHING_GAME;
+
+    // Clamp finite values against the safety cap
+    if (parsed > RENDER_DISTANCE_MAX)
+        return RENDER_DISTANCE_MAX;
+
+    return parsed;
+}
 
 DWORD WINAPI Init(LPVOID bDelay)
 {
@@ -149,12 +224,19 @@ DWORD WINAPI Init(LPVOID bDelay)
         }; injector::MakeInline<CopyrightHook>(pattern.get_first(0), pattern.get_first(7));
     }
 
+    static float g_cullingDistanceSquared = 1e9f;
     /* Increase Render Distance to Max */
     if (iniReader.ReadBoolean(INI_KEY, "IncreaseRenderDistance", true)) {
+        float renderDistanceValue = ParseRenderDistanceValue(
+            iniReader.ReadString(INI_KEY, "RenderDistanceValue", "SQRT_FLT_MAX"));
+
         pattern = hook::pattern("D9 44 24 04 D8 4C 24 04 D9 1D"); //4BC410
+
         float** flt_5088B0_addr = (float**)pattern.get_first(10);
-        **flt_5088B0_addr = sqrtf(FLT_MAX);
+        **flt_5088B0_addr = renderDistanceValue;    // sqrtf(FLT_MAX) | 1e9f | 1.45e8f is the more similar to game's default value.
         injector::MakeNOP(pattern.get_first(8), 6);
+
+        //injector::WriteMemory<float*>(pattern.get_first(10), &g_cullingDistanceSquared, true);
     }
 
     /* Fix widescreen once game loop begins */
