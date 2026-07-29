@@ -247,7 +247,6 @@ DWORD WINAPI Init(LPVOID bDelay)
         }; injector::MakeInline<CopyrightHook>(pattern.get_first(0), pattern.get_first(7));
     }
 
-    static float g_cullingDistanceSquared = 1e9f;
     /* Increase Render Distance to Max */
     if (iniReader.ReadBoolean(INI_KEY, "IncreaseRenderDistance", true)) {
         std::string rawValue = iniReader.ReadString(INI_KEY, "RenderDistanceValue", "SQRT_FLT_MAX");
