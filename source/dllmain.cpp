@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cctype>
 #include <cstdlib>
+#include <fstream>
 
 uintptr_t sub_490860_addr;
 uintptr_t sub_49D910_addr;
@@ -12,6 +13,7 @@ LARGE_INTEGER Frequency;
 LARGE_INTEGER PreviousTime, CurrentTime, ElapsedMicroseconds;
 int sleepTime;
 int framerateFactor;
+std::string g_logPath;
 
 struct Variables
 {
@@ -90,6 +92,24 @@ int sub_49D910() {
     return _sub_49D910();
 }
 
+// Simple runtime log, written next to the .asi/.ini as "ToyStory2Fix.log".
+// Truncated on the first write of each session, then appended to for the rest of the run.
+void LogMessage(const std::string& message)
+{
+    if (g_logPath.empty())
+        return; // log path not initialised yet
+
+    static bool firstWrite = true;
+    std::ofstream logFile(g_logPath, firstWrite ? std::ios::out : std::ios::app);
+    firstWrite = false;
+
+    if (logFile.is_open())
+    {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        logFile << format("[%02d:%02d:%02d] ", st.wHour, st.wMinute, st.wSecond) << message << std::endl;
+    }
+}
 
 // Safety fallback used whenever the ini value is invalid, unparseable, zero, negative, NaN,
 // or a raw (non-keyword) infinity.
@@ -136,8 +156,8 @@ float ParseRenderDistanceValue(const std::string& rawValue)
     char* endPtr = nullptr;
     float parsed = strtof(value.c_str(), &endPtr);
 
-    // Reject if nothing was parsed, or if there's leftover garbage after the number
-    if (endPtr == value.c_str() || *endPtr != '\0')
+    // Reject if nothing was parsed at all
+    if (endPtr == value.c_str())
         return RENDER_DISTANCE_DEFAULT;
 
     // Allow an optional trailing 'f'/'F' float-literal suffix (e.g. "1.45e8f", "100f")
@@ -179,6 +199,9 @@ DWORD WINAPI Init(LPVOID bDelay)
 
     CIniReader iniReader("ToyStory2Fix.ini");
     constexpr const char* INI_KEY = "ToyStory2Fix";
+
+    g_logPath = iniReader.GetIniPath();
+    g_logPath = g_logPath.substr(0, g_logPath.find_last_of('.')) + ".log";
 
     if (iniReader.ReadBoolean(INI_KEY, "FixFramerate", true)) {
         timeGetDevCaps(&tc, sizeof(tc));
@@ -227,16 +250,16 @@ DWORD WINAPI Init(LPVOID bDelay)
     static float g_cullingDistanceSquared = 1e9f;
     /* Increase Render Distance to Max */
     if (iniReader.ReadBoolean(INI_KEY, "IncreaseRenderDistance", true)) {
-        float renderDistanceValue = ParseRenderDistanceValue(
-            iniReader.ReadString(INI_KEY, "RenderDistanceValue", "SQRT_FLT_MAX"));
+        std::string rawValue = iniReader.ReadString(INI_KEY, "RenderDistanceValue", "SQRT_FLT_MAX");
+        float renderDistanceValue = ParseRenderDistanceValue(rawValue);
+
+        LogMessage(format("IncreaseRenderDistance: ini value \"%s\" parsed to %g", rawValue.c_str(), renderDistanceValue));
 
         pattern = hook::pattern("D9 44 24 04 D8 4C 24 04 D9 1D"); //4BC410
 
         float** flt_5088B0_addr = (float**)pattern.get_first(10);
-        **flt_5088B0_addr = renderDistanceValue;    // sqrtf(FLT_MAX) | 1e9f | 1.45e8f is the more similar to game's default value.
+        **flt_5088B0_addr = renderDistanceValue;    // sqrtf(FLT_MAX)=1.84467e+19 | INFINITY=inf | 1.45e8f is the more similar to game's default value.
         injector::MakeNOP(pattern.get_first(8), 6);
-
-        //injector::WriteMemory<float*>(pattern.get_first(10), &g_cullingDistanceSquared, true);
     }
 
     /* Fix widescreen once game loop begins */
